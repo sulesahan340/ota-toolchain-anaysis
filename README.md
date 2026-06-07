@@ -188,12 +188,12 @@ Aşağıdaki grafiklerde, üretilen firmware imajının 352 KB Flash ve 80 KB SR
 
 ```mermaid
 pie title CC1352R Flash Bellek (352 KB) Doluluk Oranı
-    "Kullanılan Alan (.text + .rodata) — 72 KB" : 72
-    "Boş Alan — 280 KB" : 280
+    "Kullanılan Alan (.text + .rodata) - 72 KB" : 72
+    "Boş Alan - 280 KB" : 280
 ```
 
 ```mermaid
 pie title CC1352R SRAM Bellek (80 KB) Doluluk Oranı
-    "Kullanılan Alan (.bss + .data) — 14 KB" : 14
-    "Boş Alan — 66 KB" : 66
+    "Kullanılan Alan (.bss + .data) - 14 KB" : 14
+    "Boş Alan - 66 KB" : 66
 ```
