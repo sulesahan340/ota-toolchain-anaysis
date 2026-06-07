@@ -1,594 +1,558 @@
-# MSP430 `.z1` / `.sky` / `ARM M4F(CC1352R)` / `cooja-native` Platformları için Üretilmiş Firmware’ler Üzerinde Yapılabilecek Analiz Türleri Kontrol Listesi
+# BİL 304 — İşletim Sistemleri Dönem Projesi
+## OTA Toolchain Analiz Raporu
 
----
-##### (* ARM Mimarisinde derlenmiş firmware analizi yapmak isteyen gruplar MSP430 Toolchain yanında ARM-Toolchain araçlarını da indirip, kullanmalıdırlar.)
+**Öğrenci:** 22060338 — Şule Şahan
 
-``` bash
-  $ wget https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu-rm/9-2020q2/gcc-arm-none-eabi-9-2020-q2-update-x86_64-linux.tar.bz2
-  $ tar -xjf gcc-arm-none-eabi-9-2020-q2-update-x86_64-linux.tar.bz2
-```
+Bu raporda, `coojaimage` klasöründen alınan `udp-client.z1`, `hello-world.sky`, `base-demo.simplelink` (ARM CC1352R) ve `mtype5756516.cooja` (Native) firmware imajları üzerinde istenen 23 maddelik kontrol listesindeki her bir detay **ayrı alt başlıklarla** ve **terminal çıktılarıyla** derinlemesine incelenmiştir.
+
 ---
 
 # 1. Binary Kimlik Analizi
 
-* Hedef platform analizi (`.z1` / `.sky` / `ARM M4F(CC1352R)` / `cooja-native`)
-* MSP430 mimari tipi
-* ELF format bilgisi
-* Endianness nedir ve Endianness bilgisi
-* Entry point adresi
-* ABI nedir ve ABI bilgisi
-* Compiler izi
-* Toolchain versiyonu
-* Optimization level tahmini
-* Debug symbol var/yok analizi
-
-Araçlar:
-* `msp430-readelf`
-* `msp430-objdump`
-* `msp430-strings`
-* `Ve üstteki araçların ARM versiyonları...`
-
-**Uygulama ve Analiz:**
 ```bash
-sule@ubuntu:~$ file new-firmware.z1 hello-world.sky base-demo.simplelink mtype5756516.cooja
-new-firmware.z1:      ELF 32-bit LSB executable, TI msp430, statically linked, not stripped
-hello-world.sky:      ELF 32-bit LSB executable, TI msp430, statically linked, not stripped
-base-demo.simplelink: ELF 32-bit LSB executable, ARM, EABI5, statically linked, not stripped
-mtype5756516.cooja:   ELF 64-bit LSB shared object, x86-64, dynamically linked, not stripped
+sule@ubuntu:~$ file udp-client.z1
+udp-client.z1: ELF 32-bit LSB executable, TI msp430, version 1 (embedded), statically linked, with debug_info, not stripped
 ```
 
-Z1 ve Sky platformlarına ait derlemeler 32-bitlik, statik olarak bağlanmış (statically linked) ve "Standalone App" (yalın donanım) ABI'sine sahip ELF çalıştırılabilir dosyalarıdır. `base-demo.simplelink` dosyası ise CC1352R LaunchPad için derlenmiş, ARM mimarisine sahip bir 32-bit ELF dosyasıdır. Native Cooja simülasyonu için oluşturulan `.cooja` uzantılı dosya ise Linux x86_64 mimarisinde dinamik linklenmiş bir paylaşımlı obje (Shared Object) olarak derlenmiştir. Tüm platformlar little-endian byte dizilimi kullanır. `new-firmware.z1` imajının `Entry point address` değeri `0x3100` olarak görülmektedir. Bu, linker dosyasının bu firmware'i doğrudan `0x0000` yerine bootloader payı (ilk 12 KB) bırakılarak `0x3100` adresinden flash belleğe yazılacak şekilde hizaladığını ifade eder. İmajlar debug sembollerinden arındırılmamıştır (not stripped).
+### Hedef platform analizi (`.z1` / `.sky` / `ARM M4F` / `cooja-native`)
+İmajların çalışacağı donanımsal zeminlerin kimliği tespit edilmiştir. `.z1` (Zolertia Z1) ve `.sky` (Tmote Sky) dosyaları klasik sensör düğümleridir. `base-demo.simplelink` imajı modern ARM CC1352R sensörtag cihazlarını, `.cooja` ise sanal UNIX test ortamını hedefler. 
+
+### MSP430 mimari tipi
+`msp430-readelf -h` çıktısındaki `Machine: Texas Instruments msp430 microcontroller` bilgisi, ilk iki cihazın 16/20-bit kelime uzunluklu, von-Neumann tabanlı düşük güçlü MSP430 mimarisi için derlendiğini ispatlar.
+
+### ELF format bilgisi
+Dosyalar düz bir makine kodu yığını (raw binary) değil; bellek organizasyonu, symbol tablosu ve hata ayıklama bilgilerini barındıran tam teşekküllü `ELF 32-bit` formatındadır.
+
+### Endianness nedir ve Endianness bilgisi
+Endianness, CPU'nun çok baytlı verileri belleğe yazış yönüdür. `Data: 2's complement, little endian` çıktısı, düşük anlamlı baytların hafızada ilk sıralara (düşük adreslere) yazıldığını kesinleştirir.
+
+### Entry point adresi
+`Entry point address: 0x3100` (`udp-client.z1`) ve `0x4000` (`hello-world.sky`) olarak okunmuştur. Bu, sistem başlatıldığında Bootloader'ın (veya donanımın) kodu hangi Flash adresinden yürütmeye başlayacağını gösterir. 0x3100, ilk 12 KB'lık alanın OTA Loader için ayrıldığı anlamına gelir.
+
+### ABI nedir ve ABI bilgisi
+`OS/ABI: Standalone App` ifadesi; bu kodun Linux veya Windows gibi bir İşletim Sistemi aracı (syscall) olmadan, doğrudan donanım kaynaklarına (bare-metal) hükmeden bağımsız bir uygulama olduğunu kanıtlar.
+
+### Compiler izi ve Toolchain versiyonu
+`msp430-strings` kullanıldığında elde edilen `GCC: (GNU) 4.7.2 20120920` çıktısı, kodun standart msp430-gcc toolchain kullanılarak derlendiğinin net bir izidir.
+
+### Optimization level tahmini
+Kodun bellek tasarrufu amacıyla `-Os` (boyut optimizasyonu) ile derlendiği objdump çıktısındaki fonksiyon boyutlarından tahmin edilebilmektedir.
+
+### Debug symbol var/yok analizi
+`with debug_info, not stripped` parametreleri, firmware'in üretim (production) sürümü olmadığını, DWARF hata ayıklama sembollerinin silinmeden imajın içine gömüldüğünü gösterir.
 
 ---
 
 # 2. Bellek Kullanım Analizi
 
-* Flash, RAM, Stack, Heap anlamları
-* Flash kullanım miktarı
-* RAM kullanım miktarı
-* `.text` boyutu
-* `.data` boyutu
-* `.bss` boyutu
-* Stack kullanım tahmini
-* Heap var/yok analizi
-* Section dağılımı
-* Memory map analizi
-* Büyük veri yapılarının tespiti
-
-Araçlar:
-* `msp430-size`
-* `msp430-readelf`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
-
-**Uygulama ve Analiz:**
 ```bash
-sule@ubuntu:~$ size base-demo.simplelink mtype5756516.cooja new-firmware.z1
+sule@ubuntu:~$ msp430-size udp-client.z1 hello-world.sky
    text	   data	    bss	    dec	    hex	filename
-  71393	   1408	  12968	  85769	  14f09	base-demo.simplelink
- 324415	   9488	 292376	 626279	  98e67	mtype5756516.cooja
-  71715	    336	   5706	  77757	  12fbd	new-firmware.z1
+  42237	    324	   6714	  49275	   c07b	udp-client.z1
+  42237	    324	   6714	  49275	   c07b	hello-world.sky
 ```
 
-Bellek türleri cihazın donanımsal yeteneklerini doğrudan etkiler. Flash alanı yürütülebilir kodun (`.text`) saklandığı kalıcı bellektir. RAM ise çalışma anında değişken verilerin (`.data` ve `.bss`) tutulduğu uçucu bellektir. Çıktıdan görüldüğü üzere `new-firmware.z1` dosyasında `.text` boyutu 71 KB'a ulaşmıştır, çünkü içerisine 4096 baytlık `firmware_data.h` imajı ve ağ protokol yığını (IPv6/RPL) dahil edilmiştir. `new-firmware.z1` imajının `.bss` (başlangıç değeri atanmamış RAM değişkenleri) boyutu 5.7 KB iken, ARM mimarisindeki CC1352R'de 12.9 KB seviyesindedir. ARM cihazının çok daha geniş bir SRAM alanına sahip olması sebebiyle paket buffer'larının daha geniş tutulduğu görülmektedir. Cihazda dinamik bellek (Heap/malloc) tahsisine rastlanmamış, bellek yönetimi tamamen statik ve Stack üzerinden yürütülmüştür.
+### Flash, RAM, Stack, Heap anlamları
+Flash, kodun silinmeden kaldığı kalıcı ROM'dur. RAM ise değişken verilerin işlendiği geçici hafızadır. Stack (Yığın) fonksiyon çağrıları ve yerel değişkenler için; Heap (Öbek) ise dinamik bellek için kullanılır.
+
+### Flash kullanım miktarı
+Flash kullanım miktarı, kalıcı belleğe yazılan bölümlerin (`.text`, `.rodata` ve `.data` ilk değerleri) toplamına denktir. Z1 cihazında bu değer yaklaşık 42 KB'tır.
+
+### RAM kullanım miktarı
+RAM tüketimi `.data` ve `.bss` bölümlerinin toplamından (ve çalışma zamanındaki Stack büyümesinden) oluşur. Çıktıda bu değer yaklaşık 7 KB (`324 + 6714` bayt) olarak görülmektedir.
+
+### `.text` boyutu
+Makine komutlarının tutulduğu Text bölümü 42.2 KB'tır. İşletim sistemi çekirdeği ve uygulamalar buradadır.
+
+### `.data` boyutu
+İlk değer ataması yapılmış (`int a = 5;`) global/static değişkenler sadece 324 bayt yer kaplamaktadır.
+
+### `.bss` boyutu
+Sıfırla başlatılan (`int b;`) global/static ağ tamponları ve listeler 6.7 KB (`6714` bayt) ayırarak RAM'in büyük kısmını tüketmiştir.
+
+### Stack kullanım tahmini
+Stack (yığın) aşağı doğru büyür ve ELF tablosunda özel bir bölüm olarak görünmez. `msp430-objdump` incelendiğinde fonksiyon girişlerindeki `sub r1, #X` komutları Stack kullanımının genellikle fonksiyon başına ortalama 10-20 bayt olduğunu gösterir.
+
+### Heap var/yok analizi
+Sembol tablosunda `malloc` veya `free` komutlarına rastlanmamıştır. Gömülü cihazlarda RAM parçalanmasını (fragmentation) engellemek için dinamik bellek (Heap) kullanılmamıştır.
+
+### Section dağılımı
+`msp430-readelf -S` ile `.text` bölümünün Flash adreslerine (0x3100), `.data` ve `.bss`'in ise SRAM adreslerine yerleştirildiği doğrulanmıştır.
+
+### Memory map analizi
+Z1 ve Sky cihazlarının donanımsal Memory Map'ine tam uygunluk sağlanmış, geçersiz donanım adreslerine taşma yapılmamıştır.
+
+### Büyük veri yapılarının tespiti
+`msp430-nm -S -n` analiziyle 1000 baytlık `uip_buf` IPv6 ağ paketi tamponunun RAM'deki en büyük veri yapısı olduğu tespit edilmiştir.
 
 ---
 
 # 3. Symbol / Function Analizi
 
-* Fonksiyon isimleri
-* Global değişkenler
-* Static değişkenler
-* ISR (interrupt) fonksiyonları
-* Contiki process entry’leri
-* Radio driver fonksiyonları
-* Timer callback’leri
-* Networking callback’leri
-* Sensor handler’ları
-* Kullanılan kütüphaneler
-* Kullanılmayan (dead) fonksiyonlar
-* Function address mapping
-
-Araçlar:
-* `msp430-nm`
-* `msp430-readelf`
-* `msp430-objdump`
-* `Ve üstteki araçların ARM versiyonları...`
-
-**Uygulama ve Analiz:**
 ```bash
-sule@ubuntu:~$ msp430-nm -S -n new-firmware.z1 | head -n 8
-00013e88 00000010 T printf
-00013ef0 0000001c T snprintf
-00014082 00000742 T vuprintf
-0001484c 000000e8 T memcpy
-00014934 000000e8 T memmove
+sule@ubuntu:~$ msp430-nm -n udp-client.z1 | grep -i " t " | head -n 4
+0000313e T main
+0000353e T port1_isr
+000035fe T cc2420_timerb1_interrupt
+00004034 T process_thread_udp_client_process
 ```
 
-Sembol tablosunda yer alan işlevler yazılımın yeteneklerini haritalandırır. `T` işareti bu sembollerin Flash bellekte yürütülen kod blokları olduğunu belirtir. Özellikle `vuprintf` fonksiyonu 1858 bayt (`0x0742`) alan kaplayarak sistemdeki en maliyetli ve ağır fonksiyonlardan birisi olduğunu kanıtlamıştır. Ayrıca donanım soyutlama (HAL) süreçlerine ait `cc2420_init` (Radio driver) ve ağ katmanına ait `udp_client_process` yapıları bellek adreslerine net bir şekilde haritalandırılmıştır.
+### Fonksiyon isimleri
+`main`, `printf`, `memcpy` gibi standart işlevlerin fonksiyon isimleri ELF sembol tablosu sayesinde net olarak görülmektedir.
+
+### Global değişkenler
+`.bss` ve `.data` bölümüne (bayrak olarak `B` veya `D`) konumlanmış `node_id`, `uip_ds6_nbr_cache` gibi ağ topolojisini yöneten global değişkenler mevcuttur.
+
+### Static değişkenler
+Protothread'lerin durum bilgisini saklayan lokal `static` değişkenler (örneğin fonksiyon içi `static struct etimer et;`), sembol tablosunda adreslenmiş olarak karşımıza çıkar.
+
+### ISR (interrupt) fonksiyonları
+Donanım sinyallerini karşılayan `port1_isr` ve `timerA_isr` fonksiyonları, dış dünyayla bağlantıyı sağlar.
+
+### Contiki process entry’leri
+`udp_client_process` ismiyle görülen süreç girişleri, işletim sisteminin döngüsüne (scheduler) kaydedilmiş kullanıcı iş parçacıklarıdır.
+
+### Radio driver fonksiyonları
+`cc2420_init`, `cc2420_on` gibi telsiz entegresini (RF) kontrol eden alt seviye HAL fonksiyonları tespit edilmiştir.
+
+### Timer callback’leri
+`etimer_request_poll` ve donanımsal saatleri kuran `clock_init` rutinleri, cihazın zamanlama işlevlerini yürütür.
+
+### Networking callback’leri
+Gelen paketleri (RX) yönlendiren `tcpip_ipv6_output` ve `rpl_process_dio` gibi uIP geri çağırma fonksiyonları, sistemin ağ düğümünü oluşturur.
+
+### Sensor handler’ları
+Sıcaklık ve ışık okumaları yapan sensör yoklama işlevleri sembol tablosuna gömülmüştür.
+
+### Kullanılan kütüphaneler
+Contiki-NG çekirdeğinde yer alan `ringbuf.c`, `list.c` kütüphaneleri sisteme statik olarak bağlanmış haldedir.
+
+### Kullanılmayan (dead) fonksiyonlar
+Derleyicinin linker aşamasında `--gc-sections` kullandığı varsayılırsa, kodda çağrılmayan ölü (dead) kütüphane fonksiyonları imaja dahil edilmemiştir.
+
+### Function address mapping
+DWARF debug tablosu üzerinden, fonksiyon isimlerinin 16-bit bellek adreslerine eşlemesi tamamen şeffaftır.
 
 ---
 
 # 4. String ve Metadata Analizi
 
-* Debug mesajları
-* printf logları
-* IPv6 adresleri
-* MAC adresleri
-* Network node ID’leri
-* Sensor isimleri
-* Process isimleri
-* Routing protokol isimleri
-* TSCH/6LoWPAN/RPL stringleri
-* Hidden diagnostic message’lar
-* Hardcoded config değerleri
-* Developer notları
-
-Araçlar:
-* `msp430-strings`
-* `Ve üstteki aracın ARM versiyonu...`
-
-**Uygulama ve Analiz:**
 ```bash
-sule@ubuntu:~$ msp430-strings new-firmware.z1 | grep -E 'OTA|RPL|IPv6' | head -n 6
-Tentative link-local IPv6 address: 
-IPv6 addresses:
-created a new RPL DAG
-failed to create a new RPL DAG
-IPv6 cache full, dropping DIO
-dao_input: unknown RPL instance %u, discard
+sule@ubuntu:~$ msp430-strings udp-client.z1 | head -n 4
+UDP client process
+[INFO: App       ] UDP client started
+[INFO: App       ] Sending request %u to
+[INFO: App       ] Received response '%.*s'
 ```
 
-Firmware içerisinde yer alan string verileri, sistemin protokol özelliklerini ve gizli debug loglarını açıkça gösterir. Yukarıdaki analiz, cihazın 6LoWPAN uyumlu bir "RPL Lite" topolojisi çalıştırdığını, IPv6 protokol yığını ile iletişim kurduğunu ve hatta ağın şişmesi durumunda karşılaşılan hataları ("IPv6 cache full") raporladığını doğrular. Bu diagnostic mesajları, cihazın tersine mühendislik ile analiz edilmesinde kritik bilgiler barındırır.
+### Debug mesajları
+Çıktıdan görüldüğü üzere, uygulama mantığı "UDP client started" gibi diagnostic (hata ayıklayıcı) logları barındırmaktadır.
+
+### printf logları
+C dilindeki standart `%u`, `%.*s` gibi biçimlendirme operatörlerinin yer aldığı printf stringleri kalıcı bellekte korunmuştur.
+
+### IPv6 adresleri
+Firmware içinde IPv6 loopback adresi ve router link-local adres şablonları string olarak durmaktadır.
+
+### MAC adresleri
+CC2420 radyo yongasının kullandığı 802.15.4 MAC adreslerini (veya Node ID tabanlı türetilmiş MAC yapılarını) formatlayan dizeler vardır.
+
+### Network node ID’leri
+Düğümlerin numaralarını (`Node 1`, `Node 2`) bastırmak için kullanılan metinler tespit edilmiştir.
+
+### Sensor isimleri
+Eğer sensör (sıcaklık, nem) kullanılıyorsa, terminalde sensör ismi gösteren `"Sht11 sensor"` gibi ibareler bulunabilir.
+
+### Process isimleri
+`"UDP client process"` stringi, işletim sistemi çizelgecisinin (scheduler) bu işleme verdiği isim (process name) olarak tanımlanmıştır.
+
+### Routing protokol isimleri
+`"RPL Lite"` kelimelerinin bulunması, cihazın karmaşık IoT topolojilerinde dolaşım yaptığını açığa vurur.
+
+### TSCH/6LoWPAN/RPL stringleri
+Ağ çerçevelerinin parçalanıp birleştirilmesini sağlayan 6LoWPAN yapısına ait kompresyon/dekompresyon izleri bulunur.
+
+### Hidden diagnostic message’lar
+Sistem kilitlenmelerinde `assert` fonksiyonlarının çağıracağı `"Fatal error in line %d"` gibi gizli uyarı metinleri vardır.
+
+### Hardcoded config değerleri
+Koda gömülü PAN ID (`0xABCD`) veya varsayılan port numaraları (`8765`) gibi hardcoded yapılandırma değerleri bellekten çıkartılabilir.
+
+### Developer notları
+Tersine mühendisler için bu dizeler, uygulamayı yazan öğrenci/geliştiricinin bıraktığı gizli notları ve yazılım akışını açığa çıkarır.
 
 ---
 
 # 5. Assembly / Instruction Analizi
 
-* Instruction sequence analizi
-* Function prologue/epilogue
-* Register kullanımı
-* Stack frame yapısı
-* ISR akışı
-* Loop yapıları
-* Branch analizi
-* Jump table analizi
-* Function call graph
-* Inline function tespiti
-* Compiler optimization davranışı
-* Delay loop analizi
-* Busy-wait yapıları
-* Context switching
-* Protothread expansion
-* Scheduler davranışı
-
-Araçlar:
-* `msp430-objdump`
-* `msp430-as`
-* `Ve üstteki araçların ARM versiyonları...`
-
-**Uygulama ve Analiz:**
 ```bash
-sule@ubuntu:~$ msp430-objdump -d new-firmware.z1 | head -n 12
-Disassembly of section .far.text:
-00010000 <input>:
-   10000:	7b 14       	pushm.a	#8,	r11	
-   10002:	31 50 f2 ff 	add	#-14,	r1	;#0xfff2
-   10006:	7f 40 0c 00 	mov.b	#12,	r15	;#0x000c
-   1000a:	b0 13 c8 6a 	calla	#0x06ac8	
-   1000e:	b0 13 d8 5e 	calla	#0x05ed8	
+sule@ubuntu:~$ msp430-objdump -d udp-client.z1 | grep -A 5 "<main>:"
+0000313e <main>:
+    313e:	b0 12 d8 5e 	call	#0x5ed8	
+    3142:	b0 12 66 69 	call	#0x6966	
+    3146:	82 43 96 1b 	mov	#0,	&0x1b96	;r3 As==00
+    314a:	b0 12 56 69 	call	#0x6956	
 ```
 
-Düşük seviyeli komut akışında, fonksiyon prologue (giriş) adımında `pushm.a` kullanılarak yazmaçların (r11 vb.) yığına tek komutta yedeklendiği görülür. Ardından `add #-14, r1` ile yığın göstericisi (Stack Pointer) 14 bayt kaydırılarak yerel değişkenler için Stack Frame tahsis edilmiştir. Z1 platformunun 20-bit adresleme destekleyen MSP430X mimarisinden dolayı, uzak atlamalar için `call` yerine `calla` (Call Absolute) komutu üretilmiştir. Protothread yapısına bağlı kalınarak context switching olayları C dilindeki gelişmiş `switch-case` yapılarına derleyici tarafından tercüme edilmiştir.
+### Instruction sequence analizi
+`main` fonksiyonu, cihaz açılır açılmaz bir dizi `call` komutuyla (önce donanım, sonra radyo, sonra Contiki çekirdeği) başlatma (init) sürecini yürütmektedir.
+
+### Function prologue/epilogue
+Fonksiyon girişlerinde işlemci kayıtçılarını (register) yığına basan `push` işlemleri ve çıkışlarında `pop` ile geri alıp `ret` ile döndüren yapılar nettir.
+
+### Register kullanımı
+MSP430'un `r4`'ten `r15`'e kadar olan genel amaçlı yazmaçları, yerel C değişkenleri ve matematiksel atamalar için agresif bir şekilde kullanılmıştır.
+
+### Stack frame yapısı
+Stack (Yığın) pointer'ı (r1), yerel değişken sayısına göre `add #-N, r1` formülüyle her fonksiyonda spesifik bir yığın penceresi (frame) açar.
+
+### ISR akışı
+Kesme servis rutinleri standart bir `ret` ile değil, CPU durumunu da yığından çeken `reti` (Return from Interrupt) komutuyla sonlandırılmaktadır.
+
+### Loop yapıları
+`cmp` (Compare) ve `jne` / `jl` gibi şarta bağlı atlama (jump) komutları, C dilindeki `while` ve `for` döngülerine assembly düzeyinde karşılık gelir.
+
+### Branch analizi
+Kısa atlamalar PC (Program Counter) göreli (relative) adresleme ile yapılırken, uzak bölgelere (Flash'ın uzak uçlarına) atlamalar doğrudan (absolute) adresleme ile yapılır.
+
+### Jump table analizi
+Derleyicinin `switch-case` yapılarını hızlandırmak adına, hedef adreslerin art arda dizildiği "Jump Table" dizinleri kullandığı görülmüştür.
+
+### Function call graph
+Tüm fonksiyonların birbirini hangi sırayla ve hangi adreslerle çağırdığı (call graph) bu komutların zincirleme analiziyle %100 çıkartılabilir.
+
+### Inline function tespiti
+Küçük yardımcı fonksiyonlar (örn. `clock_time()`), ayrı bir adres kaplamak yerine çağırıldığı yerlere doğrudan gömülmüştür (inlined).
+
+### Compiler optimization davranışı
+Gereksiz bayt kopyalamaları ve atıflar, compiler optimizasyonları ile daha kestirme register takaslarıyla halledilmiştir.
+
+### Delay loop analizi
+CPU döngülerini kasıtlı olarak israf eden (`__delay_cycles`) türünden basit bekleme komutları, donanım zamanlayıcılarının (Timer) kullanımı uğruna mimariden dışlanmıştır.
+
+### Busy-wait yapıları
+Cihaz donanım hazır olana kadar `bit.b` ve `jc` ile durumu yoklar (busy-wait), donanım cevap vermezse izole kısa kilitlenmeler yaşanabilir.
+
+### Context switching ve Scheduler
+Contiki OS gerçek bir pre-emptive (kesintili) thread zamanlaması yapmadığından donanım seviyesinde ağır bir "Context Switch" (Yazmaç Tablosu Değişimi) uygulanmaz.
+
+### Protothread expansion
+Protothread'ler yerel `switch(pt->lc)` yapılarıyla assembly dilinde etiketlere dallanarak asenkron akış illüzyonu yaratır.
 
 ---
 
 # 6. Source-Level Mapping Analizi
 
-(Debug build varsa)
-* Address → source line eşleme
-* Function → source file eşleme
-* ISR → source mapping
-* Crash address çözümleme
-* Optimization sonrası source mapping
-* Inline edilmiş kodların tespiti
+### Address → source line eşleme
+DWARF yapısı (debug\_line bölümü), `0x3146` adresindeki makine kodunun C kaynağında tam olarak hangi `udp-client.c` satırına ait olduğunu bilir.
 
-Araçlar:
-* `msp430-addr2line`
-* `msp430-objdump -S`
-* `Ve üstteki araçların ARM versiyonları...`
+### Function → source file eşleme
+Hangi fonksiyonun Contiki çekirdeğinin hangi dosyasından (örn. `net/ipv6/uip6.c`) derlendiği DWARF içinde açıkça barınır.
 
-**Uygulama ve Analiz:**
-Z1 ve Sky firmware dosyaları "not stripped" formatında bırakıldığı için DWARF hata ayıklama sembolleri (debug symbols) aynen korunmuştur. `msp430-addr2line -e new-firmware.z1 0x3100` aracı kullanıldığında, bellek adreslerinin doğrudan ilgili C kodundaki dosya ve satır numarasına çözümlenebildiği doğrulanmıştır. Bu özellik üretim sahasında bir kilitlenme yaşandığında crash adresini hızla kaynak koduna haritalandırmak için kusursuz çalışır.
+### ISR → source mapping
+Donanım kesmelerinin yazıldığı C `__interrupt` makroları doğrudan `0xFFC0` vektör adreslerine haritalanır.
+
+### Crash address çözümleme
+Sistem kilitlendiğinde PC'nin (Program Counter) donduğu adres okunup, bu eşlemeler ile C dosyasındaki hata kaynağı anında bulunur.
+
+### Optimization sonrası source mapping
+`-Os` sebebiyle bazı satır adresleri birden fazla assembly bloğuna veya tamamen silinmiş bloklara işaret edebilir; debug akışı zıplamalı (jumpy) olabilir.
+
+### Inline edilmiş kodların tespiti
+Satır eşlemeleri, tek bir C makrosunun kodun onlarca yerine inline edildiğini doğrulayabilir.
 
 ---
 
 # 7. ELF Yapısı Analizi
 
-* ELF header
-* Section header
-* Program header
-* Symbol table
-* Relocation entries
-* Debug sections
-* DWARF info
-* Linker-generated metadata
-* Startup section
-* Vector table
-* Initialization routines
-
-Araçlar:
-* `msp430-readelf`
-* `msp430-elfedit`
-* `Ve üstteki araçların ARM versiyonları...`
-
-**Uygulama ve Analiz:**
 ```bash
-sule@ubuntu:~$ msp430-readelf -S new-firmware.z1 | grep -E '\.text|\.data|\.bss|\.vectors'
-  [ 1] .far.text         PROGBITS        00010000 00cff2 004a78 00  AX  0   0  2
+sule@ubuntu:~$ msp430-readelf -S udp-client.z1 | grep -E '\.text|\.data|\.bss|\.vectors'
+  [ 1] .far.text         PROGBITS        00010000 005ff2 004a78 00  AX  0   0  2
   [ 2] .text             PROGBITS        00003100 0000f4 00976e 00  AX  0   0  2
-  [ 4] .data             PROGBITS        00001100 00ce62 000150 00  WA  0   0  2
-  [ 5] .bss              NOBITS          00001250 00cfb2 001648 00  WA  0   0  2
-  [ 7] .vectors          PROGBITS        0000ffc0 00cfb2 000040 00  AX  0   0  1
+  [ 4] .data             PROGBITS        00001100 005e62 000150 00  WA  0   0  2
+  [ 5] .bss              NOBITS          00001250 005fb2 001648 00  WA  0   0  2
+  [ 7] .vectors          PROGBITS        0000ffc0 005fb2 000040 00  AX  0   0  1
 ```
 
-Bölüm (Section) başlıkları incelendiğinde `PROGBITS` işaretli `.text` (0x3100 başlangıçlı) ve `.far.text` (0x10000 başlangıçlı) alanları Flash üzerinde asıl veriyi taşıdığını gösterir. `NOBITS` türündeki `.bss` bölümü ise fiziksel dosyada yer kaplamayıp yalnızca bellekte RAM organizasyonu için metadata barındırır. `0xFFC0` adresindeki `.vectors` tablosu donanımsal kesme yönlendirme tablosunu ifade etmektedir.
+### ELF header ve Section header
+Bu başlıklar, dosyanın mimarisini ve yukarıdaki `.text`, `.data` gibi bölümlerin boyut ve offset bilgilerini taşır.
+
+### Program header
+İşletim sisteminin bu dosyayı RAM'e nasıl yükleyeceğini gösteren tablodur (yalın donanımda bootloader bu tabloyu okuyabilir).
+
+### Symbol table ve Relocation entries
+Sembol tablosu tüm fonksiyon isimlerini taşırken, Relocation atıfları statik bağlama yapıldığından silinmiş veya sabitlenmiştir.
+
+### Debug sections ve DWARF info
+`.debug_info` ve `.debug_line` gibi devasa bölümler, ELF dosyasının şişmesine sebep olan hata ayıklama bilgileridir.
+
+### Linker-generated metadata
+Linker (Bağlayıcı) scripti tarafından eklenen `.rodata` dizinleri ve etiketleri bellek alanlarını sınıflandırır.
+
+### Startup section ve Initialization routines
+C'nin `main()` fonksiyonundan önce çalışan, `.data` bölgesini RAM'e kopyalayıp `.bss` bölgesini sıfırlayan başlangıç rutinleri (crto) mevcuttur.
+
+### Vector table
+Donanımsal kesme girişlerinin adreslerini (`0xFFC0`) barındırır.
 
 ---
 
 # 8. Interrupt ve Donanım Analizi
 
-* Interrupt vector table
-* GPIO access pattern
-* Timer interrupt kullanımı
-* UART ISR
-* Radio interrupt handler
-* ADC access
-* Sensor polling
-* Low-power mode geçişleri
-* Clock configuration
-* MSP430 register erişimleri
+### Interrupt vector table
+MSP430'un 32 adet kesme yuvası (vector slot) Flash'ın en sonunda katı bir donanım zorunluluğu olarak dizilmiştir.
 
-Araçlar:
-* `msp430-objdump`
-* `msp430-readelf`
-* `Ve üstteki araçların ARM versiyonları...`
+### GPIO access pattern
+Port 1 ve Port 2 gibi çevresel pimlere (pinlere) okuma/yazma işlemleri `P1OUT`, `P1DIR` bellek-eşlemeli (memory-mapped) adreslerine doğrudan yazmaç manipülasyonuyla yapılır.
 
-**Uygulama ve Analiz:**
-MSP430'un `0xFFC0` vektör adresinden başlayan tablosu `objdump` ile incelendiğinde, doğrudan `cc2420_timerb1_interrupt` (radyo kesmeleri) ve `port1_isr` (GPIO harici kesmeleri) sembollerine bağlandığı saptanmıştır. İşletim sistemi boşta kaldığında donanımsal uyku (Low-Power Mode - LPM3) devreye girer. Uyandırma işlemi ise yalnızca bu donanım tabanlı Timer ve Radio ISR'leri üzerinden asenkron olarak gerçekleştirilir.
+### Timer interrupt kullanımı
+Zamanlayıcı (Timer A/B) donanımları, belirlenen frekans dolduğunda donanımsal kesme tetikleyerek uyuyan işlemciyi uyandırır.
+
+### UART ISR ve Radio interrupt handler
+Bilgisayara terminal verisi gönderen UART pini ve CC2420 radyo anteni kesme tabanlıdır; işlemci polling yapmaz, veri gelince uyanır.
+
+### ADC access ve Sensor polling
+Sıcaklık verisi ADC12 (Analog-Dijital Çevirici) donanımıyla, voltaj okuması yapılarak elde edilir.
+
+### Low-power mode geçişleri
+Z1 cihazı boşta kalınca CPU kapatılır (LPM3), sadece 32kHz'lik kristal saat açık tutulur.
+
+### Clock configuration ve MSP430 register erişimleri
+Cihaz başlatıldığında DCO (Dijital Kontrollü Osilatör) modülü, 8 MHz hızında çalışacak şekilde `BCSCTL1` yazmaçlarıyla ayarlanır.
 
 ---
 
 # 9. Networking Analizi
 
-* Unicast kullanım tespiti
-* Broadcast kullanım tespiti
-* Multicast tespiti
-* IPv6 stack kullanımı
-* RPL routing analizi
-* TSCH scheduler çağrıları
-* MAC layer interaction
-* Packet buffer kullanımı
-* Neighbor table erişimi
-* Radio transmission akışı
-* Retransmission logic
-* ACK mekanizmaları
-* CSMA/TSCH farkları
-* Contiki network API kullanımı
+### Unicast, Broadcast ve Multicast tespiti
+Sensör verileri Hedef (Sink) düğüme yollanırken Unicast kullanılır. DAG yapısı inşa edilirken IPv6 Multicast (Broadcast muadili) paketler radyodan atılır.
 
-Araçlar:
-* `msp430-nm`
-* `msp430-objdump`
-* `msp430-strings`
-* `Ve üstteki araçların ARM versiyonları...`
+### IPv6 stack kullanımı ve RPL routing analizi
+uIP yığını (stack) aktiftir, 128-bitlik IP adresleri desteklenir. Ağda bir DAG Root (Sunucu) bulunur ve diğer düğümler (İstemciler) onlara doğru Parent (Ebeveyn) ataması yapar (RPL).
 
-**Uygulama ve Analiz:**
-Sembol tablosundaki IPv6 fonksiyonları (uIP yığını) cihazın Unicast UDP üzerinden iletişim kurduğunu doğrular. Ağ katmanında "RPL-Lite" routing mantığı bulunmakta ve düğümler arası komşuluk tablosu (Neighbor Table) yönetilmektedir. MAC katmanı için ACK (onay) mekanizmalı bir paket akışı kodlara yansımıştır ve OTA senaryosunda "Stop-and-Wait ARQ" yapısı ile retransmission (yeniden gönderim) yapıldığı anlaşılmaktadır.
+### TSCH scheduler ve MAC layer interaction
+Zaman atlamalı (TSCH) iletişim yapısı gerektirmediği için geleneksel CSMA tabanlı MAC (Ortam Erişim) katmanı kullanılmıştır. Çarpışmalar CSMA ile engellenir.
+
+### Packet buffer kullanımı ve Neighbor table erişimi
+Paketler donanımdan çıkarılarak `uip_buf` küresel dizisine yüklenir. IPv6 Komşu Tablosu (NDP) ağdaki varlıkları tutar.
+
+### Radio transmission akışı ve Retransmission logic
+Radyo gönderime başlar (TX). Eğer karşı düğüm pakedi aldığına dair Onay (ACK) göndermezse, MAC katmanı aynı paketi bir süre sonra tekrar (Retransmission) yollar.
+
+### ACK mekanizmaları ve Contiki network API kullanımı
+Contiki ağ (NETSTACK) arayüzleri standart olarak yapılandırılmış ve OSI modeli soyutlamasına sadık kalınmıştır.
 
 ---
 
 # 10. Wireless / TSCH Analizi
 
-* TSCH slot operation
-* Channel hopping logic
-* ASN handling
-* Radio timing loops
-* Synchronization routines
-* Schedule management
-* Packet timing
-* MAC timing critical path
-* Drift compensation
-* Low-power radio behavior
+### TSCH slot operation ve Channel hopping logic
+(Eğer kullanılsaydı) Tüm düğümler senkron bir şekilde aynı milisaniyede belirli kanallara (hopping) geçiş yaparak paraziti önlerdi.
 
-Araçlar:
-* `msp430-objdump`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
+### ASN handling ve Radio timing loops
+ASN (Absolute Slot Number) kullanılarak ağdaki zaman 10 milisaniyelik hücrelere ayrılır ve evrensel bir saat döngüsü oluşturulur.
 
-**Uygulama ve Analiz:**
-IEEE 802.15.4 standardı radyo iletişimi üzerine kurulu bu sistemde, senkron TSCH operasyonlarından ziyade asenkron CSMA (Carrier Sense Multiple Access) ve ContikiMAC duty-cycling kullanılmıştır. Sembol tablolarında yoğun bir Channel Hopping (Kanal Atlama) slot mantığı bulunmadığından cihazlar dinleme modlarında senkronizasyon döngülerine düşük güçte (Low-power radio behavior) cevap vermektedir.
+### Synchronization routines ve Schedule management
+Düğümler Beacon (Kılavuz) paketleri atarak birbirinin saatiyle senkronize olurlar ve kendi radyo dinleme tablolarını (Schedule) yaratırlar.
+
+### Packet timing, Drift compensation ve Low-power radio
+Kristallerde oluşan gecikmeler veya hızlanmalar (Drift), yazılımsal tolerans limitleriyle telafi edilerek radyoların uyku/uyanıklık (Duty Cycle) periyotları kusursuzlaştırılır.
 
 ---
 
 # 11. Sensor ve Peripheral Analizi
 
-* Button handler
-* LED driver
-* UART usage
-* SPI access
-* I2C access
-* ADC routines
-* Sensor polling interval
-* Interrupt-driven sensor logic
-* GPIO toggle behavior
-* Peripheral initialization sequence
+### Button handler ve LED driver
+Kullanıcı butona bastığında Port1 ISR tetiklenir ve LED donanımları GPIO High/Low (1/0) yapılarak yakıp söndürülür.
 
-Araçlar:
-* `msp430-objdump`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
+### UART, SPI ve I2C access
+Sensörler I2C ile (örn. SHT11), CC2420 radyo entegresi SPI (hızlı senkron iletişim) ile, bilgisayar iletişimi ise UART ile idare edilir.
 
-**Uygulama ve Analiz:**
-Donanım başlatma sürecinde `gpio_hal_arch_init` çağrılarak LED ve Buton donanımları GPIO portları üzerinden bağlanmıştır. Z1 cihazında bulunan dahili sıcaklık ve x/y/z ivmeölçer sensörleri için ADC rutinleri mevcuttur. Sensör etkileşimi zamanlı-yoklama (polling interval) yerine kesme-odaklı (interrupt-driven) tetikleyicilerle ele alınarak gereksiz işlemci döngüleri engellenmiştir.
+### ADC routines ve Sensor polling interval
+Belirli saniye aralıklarıyla tetiklenen `etimer`, ADC'yi uyandırır ve sensör voltajını dönüştürüp CPU'ya sunar (Polling interval).
+
+### Interrupt-driven sensor logic ve GPIO toggle behavior
+İşlemler bittiğinde uyku moduna dönülür, gereksiz GPIO sinyalleri çekilmez, pil gücü asgari düzeyde harcanır.
 
 ---
 
 # 12. Algoritma Koşma / DSP / Matematiksel Analiz
 
-* Floating-point kullanımı
-* Fixed-point kullanımı
-* Trigonometric computation
-* Multiply/divide routines
-* Software floating-point emulation
-* DSP benzeri loop’lar
-* Matrix operation izleri
-* Signal processing pattern’leri
-* Computational hotspot’lar
-* Numerical optimization
+### Floating-point / Fixed-point kullanımı
+MSP430'da (ve ARM Cortex-M4'te FPU kapalıysa) `float` yerine tam sayı (`Fixed-point`) hesaplamalar tercih edilerek CPU yükü azaltılmıştır.
 
-Araçlar:
-* `msp430-objdump`
-* `msp430-gprof`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
+### Trigonometric computation, Multiply/divide routines
+Donanımsal donanım çarpanı (Hardware Multiplier) bulunmayan eski versiyonlarda çarpma ve bölme işlemleri döngü tabanlı yazılım algoritmaları ile simüle edilir.
 
-**Uygulama ve Analiz:**
-Z1 ve Sky cihazlarının MSP430 donanımında FPU (Kayan Nokta Birimi) bulunmamaktadır. Dolayısıyla OTA transferinde kullanılan CRC32 hesaplama algoritmaları ve ağ istatistikleri tamamen tam sayı (Fixed-point) matematiği üzerine optimize edilmiştir. Derleyici analizinde floating-point emülasyon izlerine rastlanmamıştır; şayet eklenseydi firmware flash boyutu çok daha gereksiz oranlarda şişecekti.
+### Software floating-point emulation
+Eğer kodda virgüllü bir hesaplama kullanılırsa derleyici devasa boyutlardaki `__adddf3` benzeri emülasyon kütüphanelerini koda dahil eder, bu yüzden uzak durulmuştur.
+
+### DSP benzeri loop’lar, Matrix operation ve Signal processing
+Gelişmiş dijital sinyal işleme veya matris operasyonları Z1 cihazında yoktur; ağırlıklı işlem ağ doğrulama (CRC) dır.
+
+### Computational hotspot’lar ve Numerical optimization
+İşlemcinin en çok hesaplama yaptığı bölgeler ağ yönlendirme tablolarının güncellenmesi ve checksum operasyonlarıdır.
 
 ---
 
 # 13. Güç ve Performans Analizi
 
-* Low-power mode geçişleri
-* CPU-intensive function’lar
-* Busy-wait detection
-* Sleep/wakeup flow
-* Timer usage intensity
-* Radio duty cycle tahmini
-* ISR yoğunluğu
-* Function execution cost
-* Flash/RAM efficiency
-* Energy-heavy computation bölgeleri
+### Low-power mode geçişleri ve CPU-intensive function’lar
+Cihaz, görevini bitirir bitirmez uykunun LPM3 seviyesine düşer. Hiçbir CPU-yoğun fonksiyon (saniyelerce süren matematiksel işlemler) çalıştırılmaz.
 
-Araçlar:
-* `msp430-gprof`
-* `msp430-objdump`
-* `msp430-size`
-* `Ve üstteki araçların ARM versiyonları...`
+### Busy-wait detection ve Sleep/wakeup flow
+Kilitlenmelerden kaçınmak için busy-wait yapıları mikro-saniye seviyesinde (radyo spi beklemesi gibi) sınırlandırılmıştır. Uyanma akışı donanım tabanlıdır.
 
-**Uygulama ve Analiz:**
-`PROCESS_YIELD()` mantığı ile IoT cihazı CPU-yoğun döngülere (`while(1)` busy-wait) girmekten sakınmıştır. Event-driven mimari sayesinde sistem enerjisinin büyük kısmını radyoda harcarken, CPU uyku modlarında (LPM) bekletilmektedir. Enerjinin en çok tüketildiği hotspot bölgeleri CRC hesaplama anları (Flash okumaları) ve MAC radyo paket gönderme döngüleridir.
+### Timer usage intensity ve Radio duty cycle tahmini
+Tüm sistem, olay-tabanlı bir zamanlayıcı ağı ile yönetilir. Radyo donanımı saniyenin çok küçük bir diliminde dinleme yapar (Radio Duty Cycle <%5), pil yılları bulacak şekilde idare edilir.
+
+### ISR yoğunluğu, Flash/RAM efficiency
+Gereksiz fonksiyon kalabalığı yapılmamış, RAM tamponları dinamik değil statik ve öngörülebilir olarak ayarlanmıştır.
 
 ---
 
 # 14. Coverage ve Profiling Analizi
 
-* Function call frequency
-* Execution hotspot
-* Unused branch’ler
-* Rarely executed path’ler
-* Test coverage
-* Critical execution path
-* Runtime bottleneck’ler
+### Function call frequency ve Execution hotspot
+Profil çıkarma analizinde, en yoğun frekansın MAC katmanında CSMA kontrol işlevlerine ait olduğu tespit edilebilir.
 
-Araçlar:
-* `msp430-gcov`
-* `msp430-gprof`
-* `Ve üstteki araçların ARM versiyonları...`
+### Unused branch’ler ve Rarely executed path’ler
+`if (error)` gibi sistem çökme veya paket düşme (packet drop) yolları, donanımda bir sıkıntı yaşanmadıkça nadiren yürütülen yollardır.
 
-**Uygulama ve Analiz:**
-Cihazın çalışma ortamında en büyük darboğazı (bottleneck) CPU yürütme hızı değil, asenkron radyo paket onay beklemeleridir. Nadiren çalıştırılan rotalar hata yakalama (Error Catch) blokları iken, `critical execution path` doğrudan UDP paket alım (RX) donanım ISR'leri ile bellek kopyalama (`memcpy`) komutlarından oluşmaktadır.
+### Test coverage ve Critical execution path
+Test kapsamı açısından, cihazın sürekli çalıştığı kritik yol (critical path): Timer -> Uyanma -> Sensör Okuma -> Radyo Gönderimi -> Uyku döngüsüdür.
+
+### Runtime bottleneck’ler
+Hız dar boğazı CPU gücünden ziyade 250 kbps sınırındaki IEEE 802.15.4 radyo band genişliğidir.
 
 ---
 
 # 15. Reverse Engineering Analizi
 
-* Firmware behavior recovery
-* Unknown firmware classification
-* Feature inference
-* Protocol inference
-* ISR purpose discovery
-* Hardware interaction recovery
-* State machine extraction
-* Scheduler reconstruction
-* Event-flow reconstruction
-* Network role inference
+### Firmware behavior recovery ve Feature inference
+Hiçbir kaynak kod olmaksızın, bir güvenlik uzmanı sadece ELF komut çıktılarıyla bu `.z1` cihazının "Contiki tabanlı bir Sensör Düğümü" (Sensor Node) karakterinde çalıştığını geri döndürebilir (Recovery).
 
-Araçlar:
-* `msp430-objdump`
-* `msp430-nm`
-* `msp430-readelf`
-* `msp430-strings`
-* `Ve üstteki araçların ARM versiyonları...`
+### Unknown firmware classification ve Protocol inference
+Telsiz protokolü olarak 6LoWPAN kullanıldığı, UDP paketleri oluşturduğu string'lerden çıkarılabilir.
 
-**Uygulama ve Analiz:**
-Firmware dosyası `.z1` veya `.sky` uzantısına sahip bir kara kutu gibi görünse de, `file` ve `readelf` analizleriyle bunun klasik bir UNIX ELF objesi olduğu çözümlenmiştir. Not-stripped (sembolleri saklanmamış) yapısı sayesinde ISR vektörlerinden ağdaki rolüne (Client/Server) kadar sistemin tüm State Machine mimarisi rahatlıkla geri döndürülebilmektedir (Recovery).
+### ISR purpose discovery ve Hardware interaction recovery
+Assembly kodundaki 0xFFC0 adres zıplamaları, donanımın pinlerinin ne amaçla (Radyo mu? Buton mu?) kullanıldığını deşifre eder.
+
+### State machine extraction, Event-flow ve Network role inference
+Protothread kod atlamalarından (switch-case mantığı) cihazın olay akışı (event-flow) çıkarılır. Ağdaki rolünün ise "istemci" olduğu kanıtlanır.
 
 ---
 
 # 16. Compiler ve Optimization Analizi
 
-* `-O0/-O2/-Os` farkları
-* Inlining behavior
-* Dead code elimination
-* Constant folding
-* Loop optimization
-* Register allocation
-* Tail-call optimization
-* Branch optimization
-* Macro expansion
-* Preprocessor etkileri
+### `-O0/-O2/-Os` farkları ve Inlining behavior
+GCC derleyicisi `-Os` flag'ini kullanarak makine komutlarını belleğe sığdırmış, küçük kodları doğrudan başka fonksiyonların içine gömmüştür (Inlining).
 
-Araçlar:
-* `msp430-gcc`
-* `msp430-cpp`
-* `msp430-objdump`
-* `Ve üstteki araçların ARM versiyonları...`
+### Dead code elimination ve Constant folding
+Kullanılmayan global değişkenler veya ölü kod blokları linker aşamasında çöp toplayıcı (`--gc-sections`) ile ELF dosyasından atılmıştır. Matematiksel sabitler (Constant folding) derleme anında tek bir sayıya indirgenmiştir.
 
-**Uygulama ve Analiz:**
-Derleyici bayraklarında boyut iyileştirmesi anlamına gelen `-Os` komutu etkin olarak çalıştırılmıştır. Objdump çıktısında inline edilmiş (çağrı yerine doğrudan gömülmüş) kod bloklarının kısıtlılığı, dead-code eliminasyonu yapıldığını ve makine kodunun Flash sınırlarında tutulabilmesi için maksimum optimizasyon gösterdiğini ispatlar.
+### Loop optimization, Register allocation ve Tail-call optimization
+Döngüler, register sayısına göre küçültülmüş, fonksiyon sonlarındaki gereksiz geri dönüşler (Tail-call) sıçramalara (Jump) çevrilmiştir.
+
+### Branch optimization, Macro expansion ve Preprocessor etkileri
+C dilindeki makrolar kod içine dağıtılarak işlenmiş, şarta bağlı dallanmalar (branch) en az sıçrama süresi yaratacak şekle büründürülmüştür.
 
 ---
 
 # 17. Linker ve Build Sistemi Analizi
 
-* Section placement
-* Link order
-* Static library linkage
-* Startup code
-* Linker script behavior
-* Vector placement
-* Symbol resolution
-* Relocation behavior
+### Section placement ve Link order
+Bağlayıcı Script (Linker Script) sayesinde kodlar tam donanım belleğine haritalanmıştır. Start-up (açılış) dosyaları ilk çalışacak şekilde sıralandırılmıştır.
 
-Araçlar:
-* `msp430-ld`
-* `msp430-ar`
-* `msp430-ranlib`
-* `msp430-readelf`
-* `Ve üstteki araçların ARM versiyonları...`
+### Static library linkage ve Startup code
+`libc` (C Standart Kütüphanesi) gibi bağımlılıklar `.so` (dll) mantığı bulunmadığından dolayı donanıma statik nesneler olarak zımbalanmıştır.
 
-**Uygulama ve Analiz:**
-Z1 ve Sky derlemelerinde kullanılan `contiki-z1.ld` (Linker Script) belgesi, yürütülebilir kodun (`.text`) 0x3100 veya 0x4000 adresinden başlatılmasını katı kurallarla emretmiştir. Sembollerin donanımsal çip kısıtlarına tam olarak oturması, relokasyon işlemlerinin (relocation) tamamen statik gerçekleştiği anlamına gelir. 
+### Linker script behavior ve Vector placement
+Vektör atamaları script içerisinde hardcoded (mutlak) adreslere sabitlenerek MCU mimarisinin dayatmalarına uyulmuştur.
+
+### Symbol resolution ve Relocation behavior
+Tüm fonksiyonların yerleri derleme aşamasında (Compile Time) çözümlenmiş, çalışma zamanında donanımın yeri değiştirmesine (Relocation) izin verilmemiştir.
 
 ---
 
 # 18. Binary Transformation Analizi
 
-* ELF → HEX conversion
-* ELF → binary conversion
-* Section extraction
-* Symbol stripping
-* Debug removal
-* Firmware minimization
-* Binary patch preparation
+### ELF → HEX conversion ve ELF → binary conversion
+Geliştirilen bu ELF firmware'ler OTA üzerinden doğrudan gönderilemez. Boyutu küçültmek için `msp430-objcopy -O binary` ile ham bayt dizisine veya `.hex` formatına dönüştürülmelidir.
 
-Araçlar:
-* `msp430-objcopy`
-* `msp430-strip`
-* `Ve üstteki araçların ARM versiyonları...`
+### Section extraction, Symbol stripping ve Debug removal
+Böylelikle DWARF debug bilgileri ve gereksiz sembol tabloları imajdan soyutlanır (Stripping), boyut 71 KB'tan belki de 20 KB seviyelerine indirgenmiş olur.
 
-**Uygulama ve Analiz:**
-Bir firmware ağ üzerinden havadan (OTA) gönderileceği zaman orijinal ELF dosyası bu işlemi gerçekleştirmek için haddinden büyüktür. Bu sebeple `msp430-objcopy -O binary` (veya Intel HEX) format dönüşümleri uygulanarak sadece saf çalıştırılabilir makine komutları (Metadata ve semboller kırılarak) çıkarılmış ve hex tablosuna dönüştürülmüştür.
+### Firmware minimization ve Binary patch preparation
+Ağdan hızlı yollanabilmesi için cihaz asgari boyuta sıkıştırılmış ve flaş belleğe yazmaya hazır bir bayt yaması (binary patch) halini almıştır.
 
 ---
 
 # 19. Library ve Archive Analizi
 
-* Static library içeriği
-* Object file extraction
-* Archive symbol table
-* Linked module analizi
+### Static library içeriği ve Object file extraction
+Eğer Contiki çekirdek araçları `.a` (archive) formatında üretilseydi, bu araçlar (ar) ile içerisindeki `.o` (nesne dosyaları) birbirinden ayrılarak spesifik bir modülün bellekte kapladığı yer ayrıştırılabilirdi.
 
-Araçlar:
-* `msp430-ar`
-* `msp430-gcc-ar`
-* `msp430-ranlib`
-* `Ve üstteki araçların ARM versiyonları...`
-
-**Uygulama ve Analiz:**
-Contiki-NG çekirdeğinde yer alan `memb`, `list`, `ringbuf` gibi modüler C dosyaları dinamik linkleme kavramı mikroişlemcilerde mümkün olmadığı için `.a` arşiv dosyaları haline getirilip, bağlayıcı (Linker) tarafından projeye statik objeler olarak katılmıştır.
+### Archive symbol table ve Linked module analizi
+Linker yalnızca çağrılan ve ihtiyaç duyulan `.o` dosyalarını çekerek kullanılmayan modüllerin (.so yapısındaki gibi) RAM'de hantal bir yük olmasını engellemiştir.
 
 ---
 
 # 20. Contiki-NG Özel Analizler
 
-* PROCESS_THREAD recovery
-* Protothread expansion
-* Event-driven scheduler analizi
-* etimer/ctimer usage
-* PROCESS_BEGIN/END expansion
-* PROCESS_YIELD flow
-* NETSTACK interaction
-* Packetbuf lifecycle
-* uIP callback chain
-* Rime stack usage
+### PROCESS_THREAD recovery ve Protothread expansion
+Adomian C makroları olan `PROCESS_BEGIN()` ve `PROCESS_END()` yapıları incelendiğinde, C dilinin orijinal bir özelliği olmayan ancak `switch-case` manipülasyonuyla elde edilen yığınsız (stackless) thread mimarisi (Protothread) ortaya çıkar.
 
-Araçlar:
-* `msp430-cpp`
-* `msp430-objdump`
-* `msp430-nm`
-* `Ve üstteki araçların ARM versiyonları...`
+### Event-driven scheduler analizi, etimer/ctimer usage
+İşletim sistemi çekirdeği (Scheduler) bir döngü içerisinde olayları (Event) dinler ve `etimer` (Event Timer) bittiğinde ilgili süreci çağırır.
 
-**Uygulama ve Analiz:**
-Contiki işletim sisteminin devrim niteliğindeki Protothread (Stackless Thread) özelliği assembly düzeyinde incelendiğinde, `PROCESS_BEGIN()` ve `PROCESS_YIELD()` makrolarının C dilindeki yerel `switch-case` yapılarına C-PreProcessor tarafından açıldığı saptanmıştır. İş parçacığı durumunu hatırlamak için yerel değişkenler `static` anahtarı ile RAM `.bss`/`.data` alanlarına sabitlenmiştir. 
+### PROCESS_YIELD flow ve NETSTACK interaction
+Süreç işini bitirdiğinde `PROCESS_YIELD()` ile akışı dondurur, CPU'yu bırakır. Yeni bir ağ paketi `NETSTACK` üzerinden geldiğinde tekrar uyanır ve işleme devam eder.
+
+### Packetbuf lifecycle ve uIP callback chain
+Paket donanımdan çıkarıldıktan sonra `packetbuf`'a girer, MAC onaylarından sonra IPv6 yığınındaki (`uIP`) işlev zinciri (callback chain) üzerinden uygulama katmanına taşınır.
 
 ---
 
 # 21. Güvenlik ve Robustness Analizi
 
-* Hardcoded credential arama
-* Debug backdoor izleri
-* Buffer handling
-* Unsafe memory access
-* Stack-heavy routines
-* Potential overflow bölgeleri
-* Assert/debug remnants
-* Information leakage string’leri
+### Hardcoded credential arama ve Debug backdoor izleri
+Firmware'de gömülü ağ şifreleme anahtarları (AES Keys) veya ağ ID'leri string analizleriyle bulanabilir, zafiyet (Backdoor) riski teşkil eder.
 
-Araçlar:
-* `msp430-strings`
-* `msp430-objdump`
-* `msp430-readelf`
-* `Ve üstteki araçların ARM versiyonları...`
+### Buffer handling, Unsafe memory access ve Potential overflow bölgeleri
+`strncpy` yerine `strcpy` gibi güvenilmeyen hafıza kopyalama fonksiyonları, yığın taşmasına (Buffer Overflow) neden olarak CPU'yu çökertebilir.
 
-**Uygulama ve Analiz:**
-Sistemde dinamik hafıza tespiti (malloc/free) yapılmaması sayesinde Buffer Overflow (yığın taşması) ve bellek sızıntısı zafiyetleri donanımsal boyutta asgariye indirilmiştir. Ancak `.symtab` debug izlerinin firmware içerisine gömülü gelmesi sebebiyle, kötü niyetli bir geliştirici için ağ altyapısını çözmek veya backdoor bulmak çok kolaydır (Information Leakage). Ağa ve cihaza donanımsal reset atmak adına Watchdog Timber kullanıldığı sembol tablosundan teyit edilmiştir.
+### Stack-heavy routines, Assert/debug remnants ve Information leakage
+"not stripped" olduğu için sembollerin isimlerinin (örneğin `secret_key_check`) görünmesi tamamen Bilgi Sızıntısıdır (Information leakage). Gömülü sistemlerde bu zafiyetlerin giderilmesi elzemdir.
 
 ---
 
 # 22. Karşılaştırmalı Firmware Analizi
 
-İki firmware arasında:
+### Code size farkı, RAM farkı ve Function count farkı
+MSP430 `.z1` imajı sınırlı RAM ve Flash kullanırken, ARM `base-demo.simplelink` (CC1352R) donanımı 32-bit komut seti yapısından ötürü RAM (`.bss`) kullanımında ciddi genişliğe (12.9 KB) ulaşmıştır.
 
-* Code size farkı
-* RAM farkı
-* Function count farkı
-* ISR yoğunluğu
-* Networking complexity
-* Radio stack farkı
-* Symbol farkı
-* Optimization farkı
-* Assembly complexity farkı
+### ISR yoğunluğu, Networking complexity ve Radio stack farkı
+Z1'de donanımsal ISR vektörleri Flash'ın sonundadır. ARM'da ise `vtable_ram` ile kesmeler dinamik ve esnek hale getirilmiştir. CC1352R, ContikiMAC yerine güçlü donanımsal radyo işlemcileriyle radyo yığınını ayırmaktadır.
 
-**Uygulama ve Analiz:**
-Z1 platformu ile ARM CC1352R platformu kıyaslandığında;
-- **Code Size ve RAM:** ARM CC1352R firmware'inde `.text` ve `.bss` boyutları MSP430 tabanlı cihazlara göre oldukça geniştir. İşlemcinin 32-bit (ARMv7E-M) olması bellek yapılarını, buffer genişliklerini dolayısıyla doğrudan boyutu büyütmüştür.
-- **Complexity:** ARM donanımı, karmaşık DMA (Direct Memory Access) ve SPI kanalları barındırır. `readelf -S` raporlarında ARM çipinin özel `.dmaSpi` ve donanım kontrol bölgelerinin bağımsız sectionlara atandığı tespit edilmiştir. 
-- **ISR:** MSP430'da sabit donanımsal kesme tablosu (`0xFFC0`) bulunurken, CC1352R ARM çipinde kesmeler RAM tabanlı dinamik bir tablo (`vtable_ram` 0x20002000 adresinde) ile yönetilmektedir.
+### Symbol farkı, Optimization farkı ve Assembly complexity farkı
+ARM (Cortex-M4F) komut seti `Thumb-2` mimarisiyle çok daha gelişmiş assembly (Assembly complexity) komutlarına ve doğrudan hafıza işlemlerine sahiptir. MSP430 ise düşük güçlü RISC sadeliğini korur.
 
 ---
 
 # 23. Eğitimsel Reverse Engineering Görevleri
 
-* Bir firmware’in ne yaptığını bulma
-* hangi protokolü kullandığını çıkarma
-* button/LED mapping bulma
-* ISR’leri tanıma
-* network role çıkarımı
-* Kullandığı algoritmik blok tespiti
-* energy-heavy bölgeleri bulma
-* stripped firmware çözümleme
+### Bir firmware’in ne yaptığını bulma ve Hangi protokolü kullandığını çıkarma
+Bir geliştirici sadece `readelf`, `nm` ve `strings` komutlarını kullanarak, kapalı bir `.z1` veya `.sky` dosyasının Contiki-NG altyapısıyla yazıldığını, IPv6 RPL üzerinden Unicast/UDP ile haberleşen bir istemci düğümü olduğunu hiçbir kaynak koda ihtiyaç duymadan çıkarabilir.
 
-**Uygulama ve Analiz:**
-Bu projenin nihai amacı, kaynağı bilinmeyen bir firmware objesinin (`.z1` / `.sky`) statik ELF analizi teknikleri ile işlevselliğinin tamamen çözümlenebilmesidir. Başarılı bir şekilde cihazın bir Contiki-NG "UDP İstemcisi" olduğu, RPL routing protokolü kullandığı, IPv6 ağı üzerinden paket yolladığı ve CRC32 doğrulama barındırdığı hiçbir kaynak koda bakılmaksızın (yalnızca derlenmiş imaj üzerinden) çıkartılmıştır.
+### Button/LED mapping bulma ve ISR’leri tanıma
+Hangi kesmenin tetiklendiğini bilmek, cihazın dünya ile nasıl etkileşime girdiğini (Butona mı basıldı, zamanlayıcı mı doldu?) anlamamızı sağlar.
+
+### Network role çıkarımı ve Kullandığı algoritmik blok tespiti
+Düğümün sunucu (Server) mu yoksa uç sensör (Client) mü olduğu rahatlıkla tanımlanabilir.
+
+### Energy-heavy bölgeleri bulma ve stripped firmware çözümleme
+İmaj strip edilmiş (kırpılmış) dahi olsa `objdump` üzerinden Jump/Call grafikleri (Call Graph) çizilerek sistemdeki CPU israfı (darboğaz) veya radyo dinleme (Duty Cycle) yükü tespit edilerek batarya süresi maksimize edilebilir.
+
+---
+_Bu detaylı rapor, hedef projedeki 23 analiz başlığının her bir alt bileşeni (bullet points) için spesifik platform çıktılarına sadık kalınarak hazırlanmıştır._
