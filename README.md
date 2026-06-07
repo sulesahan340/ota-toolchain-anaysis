@@ -555,4 +555,37 @@ Düğümün sunucu (Server) mu yoksa uç sensör (Client) mü olduğu rahatlıkl
 İmaj strip edilmiş (kırpılmış) dahi olsa `objdump` üzerinden Jump/Call grafikleri (Call Graph) çizilerek sistemdeki CPU israfı (darboğaz) veya radyo dinleme (Duty Cycle) yükü tespit edilerek batarya süresi maksimize edilebilir.
 
 ---
-_Bu detaylı rapor, hedef projedeki 23 analiz başlığının her bir alt bileşeni (bullet points) için spesifik platform çıktılarına sadık kalınarak hazırlanmıştır._
+---
+
+# 24. CC1352R SoC Disk ve Bellek Uzayı Görselleştirmesi (Özel Gereksinim)
+
+Proje yönergesinde belirtilen "Araç zinciri ile üretilen bellek sonuçlarının CC1352R SoC dokümantasyonuna uygun olarak görselleştirilmesi" kuralı gereğince, `base-demo.simplelink` imajının ARM bellek haritası (Memory Map) üzerindeki yerleşimi aşağıda çıkarılmıştır.
+
+**CC1352R Donanım Bellek Haritası ve Firmware Yerleşimi:**
+
+```text
+================= 0xFFFFFFFF
+    ... (Peripheral & System Registers) ...
+================= 0x40000000 (Donanım Çevre Birimleri - GPIO, UART, vs.)
+    ... 
+================= 0x20014000 (80 KB SRAM Bitişi)
+  [SRAM - Stack]  -> Fonksiyon yığınları (Aşağı doğru büyür)
+  [SRAM - Heap]   -> (Bu firmware'de dinamik bellek tahsisi tespit edilmedi)
+  [SRAM - .bss]   -> 12.9 KB (Sıfırla başlatılan ağ tamponları)
+  [SRAM - .data]  -> 1.4 KB (Başlangıç değerine sahip değişkenler)
+  [SRAM - Vtable] -> 256 Bayt (Dinamik kesme yönlendirme tablosu - vtable_ram)
+================= 0x20000000 (80 KB SRAM Başlangıcı)
+    ...
+================= 0x10000000 (256 KB ROM - TI-RTOS Kernel & BLE/15.4 Stack)
+    ...
+================= 0x00057FF8 (352 KB Flash Bitişi)
+  [.ccfg]         -> Cihaz yapılandırma sektörü (Customer Configuration)
+    ...
+  [.rodata]       -> Sabit C verileri ve dizeler
+  [.text]         -> 71 KB (Yürütülebilir ARM Makine Kodları)
+  [.resetVecs]    -> Kesme girişleri
+================= 0x00000000 (352 KB Flash Başlangıcı)
+```
+
+**Analiz:**
+ARM Cortex-M4F çipinin hafıza sınırlarına göre; ELF içerisindeki `PROGBITS` segmentleri (makine kodları ve salt okunur veriler) SoC'nin `0x00000000` başlangıçlı Flash bölgelerine gömülürken, çalışma zamanındaki uçucu veriler (`.bss` ve `.data`) SoC'nin `0x20000000` adresinden başlayan SRAM bölgelerine yerleşmiştir. Z1 cihazından farklı olarak, CC1352R devasa SRAM kapasitesi sayesinde 13 KB'lık ağ tamponlarını rahatça barındırabilmektedir.
