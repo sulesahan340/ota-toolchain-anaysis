@@ -153,7 +153,7 @@ Geliştirilen bu imajlar (`.z1`, `.sky`) çıplak gözle bakıldığında "0" ve
 
 ### 7. SoC Disk ve Bellek Uzayı Görselleştirmeleri
 
-Proje yönergesinde belirtilen *"X firmware, SoC'nin disk ve bellekteki hangi bölgelerinde, ne kadar yer kaplayacaktır?"* sorusuna istinaden, analiz edilen her üç firmware imajı için donanım bellek haritaları (Memory Map) gerçek çıktı boyutlarına göre aşağıda ayrı ayrı görselleştirilmiştir.
+Analiz edilen her üç firmware imajı için donanım bellek haritaları (Memory Map) gerçek çıktı boyutlarına göre aşağıda ayrı ayrı görselleştirilmiştir.
 
 #### 7.1. MSP430 Bellek Haritası (`udp-client.z1` ve `hello-world.sky`)
 MSP430 (Z1/Sky) donanımında RAM `0x1100` adresinden, Flash ise bootloader sonrası `0x3100` adresinden başlamaktadır.
@@ -226,5 +226,3 @@ graph TD
     style Slot0 fill:#27ae60,stroke:#333,stroke-width:2px,color:#fff
     style Slot1 fill:#d35400,stroke:#333,stroke-width:2px,color:#fff
 ```
-
-*Not: Resmi TI CC13x2 / CC26x2 Dokümantasyonu (Technical Reference Manual) bölüm 8 (Memory Map) üzerinden alınan adres referanslarına göre modelleme yapılmıştır. İstenildiği takdirde dokümandaki orijinal "Memory Map" sayfasının ekran görüntüsü referans olarak repodaki images klasörüne eklenebilir.*
